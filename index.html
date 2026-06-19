@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>VMAX Show Tracker</title>
+<style>
+  :root{
+    --bg:#0e1217; --panel:#161c24; --panel2:#1d2530; --line:#2a3441;
+    --ink:#eef2f6; --mute:#8a97a6; --faint:#5c6775;
+    --bolt:#ffd23f; --got:#34d399; --got-bg:#0f2e23; --accent:#5ea9ff; --tap:#222c38;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color:transparent;}
+  html,body{margin:0; background:var(--bg); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;}
+  body{padding-bottom:96px;}
+  @media (prefers-reduced-motion:no-preference){ .row{transition:background .15s,border-color .15s;} }
+
+  header{position:sticky; top:0; z-index:20; background:var(--bg);
+    border-bottom:1px solid var(--line); padding:10px 12px 8px;}
+  .title{display:flex; align-items:baseline; gap:8px; margin:0 0 8px;}
+  .title h1{font-size:17px; font-weight:800; letter-spacing:.2px; margin:0;}
+  .title .vbolt{color:var(--bolt); font-weight:900;}
+  .title .count{margin-left:auto; font-size:12px; color:var(--mute); font-variant-numeric:tabular-nums;}
+
+  .toolbar{display:flex; gap:8px; align-items:center;}
+  .search{flex:1; font-size:16px; padding:11px 12px; border-radius:11px;
+    border:1px solid var(--line); background:var(--panel); color:var(--ink); outline:none;}
+  .search:focus{border-color:var(--accent);}
+  .viewtoggle{flex:0 0 auto; font-size:13px; font-weight:600; padding:11px 13px; border-radius:11px;
+    border:1px solid var(--line); background:var(--panel); color:var(--mute);}
+  .viewtoggle.on{color:var(--bolt); border-color:var(--bolt);}
+
+  .filters{display:flex; gap:6px; overflow-x:auto; padding:8px 0 2px; scrollbar-width:none;}
+  .filters::-webkit-scrollbar{display:none;}
+  .chip{flex:0 0 auto; font-size:13px; padding:6px 12px; border-radius:999px;
+    border:1px solid var(--line); background:var(--panel); color:var(--mute); white-space:nowrap;}
+  .chip.on{background:var(--bolt); color:#1a1407; border-color:var(--bolt); font-weight:700;}
+
+  .setgroup{margin-top:14px;}
+  .sethead{display:flex; align-items:center; gap:8px; padding:0 12px 6px;}
+  .sethead h2{font-size:13px; font-weight:700; letter-spacing:.6px; text-transform:uppercase;
+    color:var(--accent); margin:0;}
+  .sethead .frac{font-size:12px; color:var(--faint); font-variant-numeric:tabular-nums; margin-left:auto;}
+
+  .row{display:flex; align-items:center; gap:10px; padding:10px 12px;
+    margin:0 8px 6px; border-radius:12px; background:var(--panel);
+    border:1px solid var(--line); cursor:pointer;}
+  .row.got{background:var(--got-bg); border-color:#1c5443;}
+  .tick{flex:0 0 auto; width:24px; height:24px; border-radius:7px;
+    border:2px solid var(--faint); display:grid; place-items:center; font-size:14px; color:transparent;}
+  .row.got .tick{background:var(--got); border-color:var(--got); color:#06281d;}
+  .thumb{flex:0 0 auto; width:46px; height:64px; border-radius:6px; background:#0b0f14;
+    object-fit:contain; border:1px solid var(--line);}
+  .thumb.ph{display:grid; place-items:center; font-size:9px; color:var(--faint); text-align:center; line-height:1.1; padding:2px;}
+  .info{flex:1 1 auto; min-width:0;}
+  .name{font-size:15px; font-weight:600; line-height:1.2;}
+  .num{font-size:12px; color:var(--mute); margin-top:2px; font-variant-numeric:tabular-nums;}
+  .row.got .num{color:#5fae93;}
+  .price{flex:0 0 auto; font-size:14px; font-weight:700; color:var(--got);
+    font-variant-numeric:tabular-nums; min-width:54px; text-align:right;}
+  .price.empty{color:var(--faint); font-weight:500;}
+
+  #list.grid .setgroup>div{display:grid; grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
+    gap:8px; padding:0 8px;}
+  #list.grid .row{flex-direction:column; align-items:stretch; gap:6px; padding:8px; margin:0; position:relative;}
+  #list.grid .tick{position:absolute; top:12px; right:12px; z-index:2; width:22px; height:22px;
+    background:rgba(0,0,0,.55); border-color:#fff;}
+  #list.grid .row.got .tick{background:var(--got); border-color:var(--got);}
+  #list.grid .thumb{width:100%; height:auto; aspect-ratio:.717;}
+  #list.grid .info{text-align:center;}
+  #list.grid .name{font-size:12px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;}
+  #list.grid .num{font-size:10px;}
+  #list.grid .price{min-width:0; text-align:center; font-size:13px;}
+
+  .empty-state{text-align:center; color:var(--faint); padding:48px 24px; font-size:14px;}
+
+  .bar{position:fixed; left:0; right:0; bottom:0; z-index:30; background:var(--panel2);
+    border-top:1px solid var(--line); padding:10px 12px calc(10px + env(safe-area-inset-bottom));
+    display:flex; align-items:center; gap:12px;}
+  .stat{display:flex; flex-direction:column; line-height:1.1;}
+  .stat .big{font-size:19px; font-weight:800; font-variant-numeric:tabular-nums;}
+  .stat .lbl{font-size:11px; color:var(--mute); text-transform:uppercase; letter-spacing:.5px;}
+  .stat .big.spend{color:var(--bolt);}
+  .bar .btn{font-size:14px; font-weight:700; padding:11px 14px; border-radius:11px;
+    border:none; background:var(--accent); color:#05203f;}
+  .bar .btn.first{margin-left:auto;}
+  .btn.ghost{background:var(--tap); color:var(--ink);}
+
+  .sheet-bg{position:fixed; inset:0; z-index:40; background:rgba(0,0,0,.6); display:none; align-items:flex-end;}
+  .sheet-bg.open{display:flex;}
+  .sheet{width:100%; background:var(--panel2); border-radius:18px 18px 0 0;
+    padding:16px 16px calc(16px + env(safe-area-inset-bottom)); border-top:1px solid var(--line);
+    max-height:92vh; overflow-y:auto;}
+  .sheet-img{display:block; width:170px; max-width:48%; margin:2px auto 12px; border-radius:10px;
+    background:#0b0f14; box-shadow:0 4px 20px rgba(0,0,0,.4);}
+  .sheet-img.ph{height:220px; display:grid; place-items:center; color:var(--faint); font-size:12px;}
+  .sheet h3{margin:0 0 2px; font-size:16px; font-weight:700; text-align:center;}
+  .sheet .sub{font-size:12px; color:var(--mute); margin-bottom:14px; font-variant-numeric:tabular-nums; text-align:center;}
+  .pricewrap{display:flex; align-items:center; gap:8px; background:var(--bg);
+    border:1px solid var(--line); border-radius:12px; padding:0 14px; margin-bottom:14px;}
+  .pricewrap .dollar{font-size:22px; color:var(--mute); font-weight:700;}
+  .pricewrap input{flex:1; font-size:24px; font-weight:700; padding:14px 0; border:none;
+    background:transparent; color:var(--ink); outline:none; font-variant-numeric:tabular-nums;}
+  .quick{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:16px;}
+  .quick button{flex:1; min-width:60px; font-size:14px; font-weight:600; padding:10px 0;
+    border-radius:10px; border:1px solid var(--line); background:var(--panel); color:var(--ink);}
+  .sheet-actions{display:flex; gap:10px;}
+  .sheet-actions button{flex:1; font-size:15px; font-weight:700; padding:14px 0; border-radius:12px; border:none;}
+  .save{background:var(--got); color:#06281d;}
+  .remove{background:var(--tap); color:#ff8585;}
+  .cancel{background:var(--tap); color:var(--ink); flex:0 0 auto; padding:14px 18px;}
+
+  .zoom-bg{position:fixed; inset:0; z-index:60; background:rgba(0,0,0,.92);
+    display:none; align-items:center; justify-content:center; padding:24px;}
+  .zoom-bg.open{display:flex;}
+  .zoom-bg img{max-width:100%; max-height:100%; border-radius:12px;}
+</style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1><span class="vbolt">V</span>MAX Show Tracker</h1>
+    <span class="count" id="hcount"></span>
+  </div>
+  <div class="toolbar">
+    <input class="search" id="search" type="search" placeholder="Search name, set, or number…" autocomplete="off">
+    <button class="viewtoggle" id="viewToggle">Grid</button>
+  </div>
+  <div class="filters" id="filters"></div>
+</header>
+
+<main id="list"></main>
+
+<div class="bar">
+  <div class="stat"><span class="big" id="sGot">0</span><span class="lbl">Bought</span></div>
+  <div class="stat"><span class="big spend" id="sSpend">$0</span><span class="lbl">Spent</span></div>
+  <button class="btn ghost first" id="resetBtn">Reset</button>
+  <button class="btn" id="exportBtn">Export CSV</button>
+</div>
+
+<div class="sheet-bg" id="sheetBg">
+  <div class="sheet">
+    <img class="sheet-img" id="shImg" alt="">
+    <h3 id="shName">Card</h3>
+    <div class="sub" id="shSub"></div>
+    <div class="pricewrap"><span class="dollar">$</span>
+      <input id="shPrice" type="number" inputmode="decimal" step="0.01" min="0" placeholder="0.00"></div>
+    <div class="quick" id="quickRow"></div>
+    <div class="sheet-actions">
+      <button class="cancel" id="shCancel">Cancel</button>
+      <button class="remove" id="shRemove">Not bought</button>
+      <button class="save" id="shSave">Mark bought</button>
+    </div>
+  </div>
+</div>
+
+<div class="zoom-bg" id="zoomBg"><img id="zoomImg" alt=""></div>
+
+<script>
+const CARDS = [["Promos","SWSH005","Meowth VMAX","https://images.pokemontcg.io/swshp/SWSH005.png"],["Promos","SWSH045","Eternatus VMAX","https://images.pokemontcg.io/swshp/SWSH045.png"],["Promos","SWSH062","Pikachu VMAX","https://images.pokemontcg.io/swshp/SWSH062.png"],["Promos","SWSH087","Eevee VMAX","https://images.pokemontcg.io/swshp/SWSH087.png"],["Promos","SWSH097","Dragapult VMAX","https://images.pokemontcg.io/swshp/SWSH097.png"],["Promos","SWSH099","Crobat VMAX","https://images.pokemontcg.io/swshp/SWSH099.png"],["Promos","SWSH102","Venusaur VMAX","https://images.pokemontcg.io/swshp/SWSH102.png"],["Promos","SWSH103","Blastoise VMAX","https://images.pokemontcg.io/swshp/SWSH103.png"],["Promos","SWSH180","Flareon VMAX","https://images.pokemontcg.io/swshp/SWSH180.png"],["Promos","SWSH182","Vaporeon VMAX","https://images.pokemontcg.io/swshp/SWSH182.png"],["Promos","SWSH184","Jolteon VMAX","https://images.pokemontcg.io/swshp/SWSH184.png"],["Promos","SWSH261","Charizard VMAX","https://images.pokemontcg.io/swshp/SWSH261.png"],["Promos","SWSH264","Zeraora VMAX","https://images.pokemontcg.io/swshp/SWSH264.png"],["Promos","SWSH267","Deoxys VMAX","https://images.pokemontcg.io/swshp/SWSH267.png"],["Promos","SWSH286","Pikachu VMAX","https://images.pokemontcg.io/swshp/SWSH286.png"],["SWSH Base","050/202","Lapras VMAX","https://images.pokemontcg.io/swsh1/50.png"],["SWSH Base","080/202","Morpeko VMAX","https://images.pokemontcg.io/swsh1/80.png"],["SWSH Base","116/202","Stonjourner VMAX","https://images.pokemontcg.io/swsh1/116.png"],["SWSH Base","142/202","Snorlax VMAX","https://images.pokemontcg.io/swsh1/142.png"],["SWSH Base","203/202","Lapras VMAX (Rainbow)","https://images.pokemontcg.io/swsh1/203.png"],["SWSH Base","204/202","Morpeko VMAX (Rainbow)","https://images.pokemontcg.io/swsh1/204.png"],["SWSH Base","205/202","Stonjourner VMAX (Rainbow)","https://images.pokemontcg.io/swsh1/205.png"],["SWSH Base","206/202","Snorlax VMAX (Rainbow)","https://images.pokemontcg.io/swsh1/206.png"],["Rebel Clash","018/192","Rillaboom VMAX","https://images.pokemontcg.io/swsh2/18.png"],["Rebel Clash","036/192","Cinderace VMAX","https://images.pokemontcg.io/swsh2/36.png"],["Rebel Clash","050/192","Inteleon VMAX","https://images.pokemontcg.io/swsh2/50.png"],["Rebel Clash","071/192","Toxtricity VMAX","https://images.pokemontcg.io/swsh2/71.png"],["Rebel Clash","093/192","Dragapult VMAX","https://images.pokemontcg.io/swsh2/93.png"],["Rebel Clash","122/192","Malamar VMAX","https://images.pokemontcg.io/swsh2/122.png"],["Rebel Clash","137/192","Copperajah VMAX","https://images.pokemontcg.io/swsh2/137.png"],["Rebel Clash","193/192","Rillaboom VMAX (Rainbow)","https://images.pokemontcg.io/swsh2/193.png"],["Rebel Clash","194/192","Cinderace VMAX (Rainbow)","https://images.pokemontcg.io/swsh2/194.png"],["Rebel Clash","195/192","Inteleon VMAX (Rainbow)","https://images.pokemontcg.io/swsh2/195.png"],["Rebel Clash","196/192","Toxtricity VMAX (Rainbow)","https://images.pokemontcg.io/swsh2/196.png"],["Rebel Clash","197/192","Dragapult VMAX (Rainbow)","https://images.pokemontcg.io/swsh2/197.png"],["Rebel Clash","198/192","Malamar VMAX (Rainbow)","https://images.pokemontcg.io/swsh2/198.png"],["Rebel Clash","199/192","Copperajah VMAX (Rainbow)","https://images.pokemontcg.io/swsh2/199.png"],["Darkness Ablaze","002/189","Butterfree VMAX","https://images.pokemontcg.io/swsh3/2.png"],["Darkness Ablaze","020/189","Charizard VMAX","https://images.pokemontcg.io/swsh3/20.png"],["Darkness Ablaze","034/189","Centiskorch VMAX","https://images.pokemontcg.io/swsh3/34.png"],["Darkness Ablaze","115/189","Grimmsnarl VMAX","https://images.pokemontcg.io/swsh3/115.png"],["Darkness Ablaze","117/189","Eternatus VMAX","https://images.pokemontcg.io/swsh3/117.png"],["Darkness Ablaze","119/189","Scizor VMAX","https://images.pokemontcg.io/swsh3/119.png"],["Darkness Ablaze","144/189","Salamence VMAX","https://images.pokemontcg.io/swsh3/144.png"],["Darkness Ablaze","190/189","Butterfree VMAX (Rainbow)","https://images.pokemontcg.io/swsh3/190.png"],["Darkness Ablaze","191/189","Centiskorch VMAX (Rainbow)","https://images.pokemontcg.io/swsh3/191.png"],["Darkness Ablaze","192/189","Eternatus VMAX (Rainbow)","https://images.pokemontcg.io/swsh3/192.png"],["Darkness Ablaze","193/189","Scizor VMAX (Rainbow)","https://images.pokemontcg.io/swsh3/193.png"],["Darkness Ablaze","194/189","Salamence VMAX (Rainbow)","https://images.pokemontcg.io/swsh3/194.png"],["Champion's Path","015/073","Drednaw VMAX","https://images.pokemontcg.io/swsh35/15.png"],["Champion's Path","017/073","Gardevoir VMAX","https://images.pokemontcg.io/swsh35/17.png"],["Champion's Path","023/073","Alcremie VMAX","https://images.pokemontcg.io/swsh35/23.png"],["Champion's Path","074/073","Charizard VMAX (Rainbow)","https://images.pokemontcg.io/swsh35/74.png"],["Champion's Path","075/073","Drednaw VMAX (Rainbow)","https://images.pokemontcg.io/swsh35/75.png"],["Champion's Path","076/073","Gardevoir VMAX (Rainbow)","https://images.pokemontcg.io/swsh35/76.png"],["Vivid Voltage","021/185","Orbeetle VMAX","https://images.pokemontcg.io/swsh4/21.png"],["Vivid Voltage","037/185","Galarian Darmanitan VMAX","https://images.pokemontcg.io/swsh4/37.png"],["Vivid Voltage","044/185","Pikachu VMAX","https://images.pokemontcg.io/swsh4/44.png"],["Vivid Voltage","099/185","Coalossal VMAX","https://images.pokemontcg.io/swsh4/99.png"],["Vivid Voltage","127/185","Aegislash VMAX","https://images.pokemontcg.io/swsh4/127.png"],["Vivid Voltage","141/185","Togekiss VMAX","https://images.pokemontcg.io/swsh4/141.png"],["Vivid Voltage","186/185","Orbeetle VMAX (Rainbow)","https://images.pokemontcg.io/swsh4/186.png"],["Vivid Voltage","187/185","Galarian Darmanitan VMAX (Rainbow)","https://images.pokemontcg.io/swsh4/187.png"],["Vivid Voltage","188/185","Pikachu VMAX (Rainbow)","https://images.pokemontcg.io/swsh4/188.png"],["Vivid Voltage","189/185","Coalossal VMAX (Rainbow)","https://images.pokemontcg.io/swsh4/189.png"],["Vivid Voltage","190/185","Aegislash VMAX (Rainbow)","https://images.pokemontcg.io/swsh4/190.png"],["Vivid Voltage","191/185","Togekiss VMAX (Rainbow)","https://images.pokemontcg.io/swsh4/191.png"],["Shining Fates","010/072","Dhelmise VMAX","https://images.pokemontcg.io/swsh45/10.png"],["Shining Fates","019/072","Cinderace VMAX","https://images.pokemontcg.io/swsh45/19.png"],["Shining Fates","038/072","Morpeko VMAX","https://images.pokemontcg.io/swsh45/38.png"],["Shining Fates","045/072","Crobat VMAX","https://images.pokemontcg.io/swsh45/45.png"],["Shining Fates","051/072","Ditto VMAX","https://images.pokemontcg.io/swsh45/51.png"],["Shining Fates","055/072","Cramorant VMAX","https://images.pokemontcg.io/swsh45/55.png"],["Shining Fates","073/072","Alcremie VMAX (Rainbow)","https://images.pokemontcg.io/swsh45/73.png"],["Shining Fates","SV106/SV122","Rillaboom VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV106.png"],["Shining Fates","SV107/SV122","Charizard VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV107.png"],["Shining Fates","SV109/SV122","Centiskorch VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV109.png"],["Shining Fates","SV111/SV122","Lapras VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV111.png"],["Shining Fates","SV113/SV122","Toxtricity VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV113.png"],["Shining Fates","SV117/SV122","Grimmsnarl VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV117.png"],["Shining Fates","SV119/SV122","Ditto VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV119.png"],["Shining Fates","SV122/SV122","Eternatus VMAX (Shiny Vault)","https://images.pokemontcg.io/swsh45sv/SV122.png"],["Battle Styles","019/163","Flapple VMAX","https://images.pokemontcg.io/swsh5/19.png"],["Battle Styles","022/163","Victini VMAX","https://images.pokemontcg.io/swsh5/22.png"],["Battle Styles","051/163","Tapu Koko VMAX","https://images.pokemontcg.io/swsh5/51.png"],["Battle Styles","086/163","Single Strike Urshifu VMAX","https://images.pokemontcg.io/swsh5/86.png"],["Battle Styles","088/163","Rapid Strike Urshifu VMAX","https://images.pokemontcg.io/swsh5/88.png"],["Battle Styles","110/163","Corviknight VMAX","https://images.pokemontcg.io/swsh5/110.png"],["Battle Styles","164/163","Flapple VMAX (Rainbow)","https://images.pokemontcg.io/swsh5/164.png"],["Battle Styles","165/163","Victini VMAX (Rainbow)","https://images.pokemontcg.io/swsh5/165.png"],["Battle Styles","166/163","Tapu Koko VMAX (Rainbow)","https://images.pokemontcg.io/swsh5/166.png"],["Battle Styles","167/163","Single Strike Urshifu VMAX (Rainbow)","https://images.pokemontcg.io/swsh5/167.png"],["Battle Styles","168/163","Single Strike Urshifu VMAX (Gold)","https://images.pokemontcg.io/swsh5/168.png"],["Battle Styles","169/163","Rapid Strike Urshifu VMAX (Rainbow)","https://images.pokemontcg.io/swsh5/169.png"],["Battle Styles","170/163","Rapid Strike Urshifu VMAX (Gold)","https://images.pokemontcg.io/swsh5/170.png"],["Battle Styles","171/163","Corviknight VMAX (Rainbow)","https://images.pokemontcg.io/swsh5/171.png"],["Chilling Reign","008/198","Celebi VMAX","https://images.pokemontcg.io/swsh6/8.png"],["Chilling Reign","021/198","Blaziken VMAX","https://images.pokemontcg.io/swsh6/21.png"],["Chilling Reign","046/198","Ice Rider Calyrex VMAX","https://images.pokemontcg.io/swsh6/46.png"],["Chilling Reign","075/198","Shadow Rider Calyrex VMAX","https://images.pokemontcg.io/swsh6/75.png"],["Chilling Reign","090/198","Sandaconda VMAX","https://images.pokemontcg.io/swsh6/90.png"],["Chilling Reign","100/198","Galarian Slowking VMAX","https://images.pokemontcg.io/swsh6/100.png"],["Chilling Reign","113/198","Metagross VMAX","https://images.pokemontcg.io/swsh6/113.png"],["Chilling Reign","125/198","Tornadus VMAX","https://images.pokemontcg.io/swsh6/125.png"],["Chilling Reign","199/198","Celebi VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/199.png"],["Chilling Reign","200/198","Blaziken VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/200.png"],["Chilling Reign","201/198","Blaziken VMAX (Alt Art)","https://images.pokemontcg.io/swsh6/201.png"],["Chilling Reign","202/198","Ice Rider Calyrex VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/202.png"],["Chilling Reign","203/198","Ice Rider Calyrex VMAX (Alt Art)","https://images.pokemontcg.io/swsh6/203.png"],["Chilling Reign","204/198","Shadow Rider Calyrex VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/204.png"],["Chilling Reign","205/198","Shadow Rider Calyrex VMAX (Alt Art)","https://images.pokemontcg.io/swsh6/205.png"],["Chilling Reign","206/198","Sandaconda VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/206.png"],["Chilling Reign","207/198","Galarian Slowking VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/207.png"],["Chilling Reign","208/198","Metagross VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/208.png"],["Chilling Reign","209/198","Tornadus VMAX (Rainbow)","https://images.pokemontcg.io/swsh6/209.png"],["Evolving Skies","008/203","Leafeon VMAX","https://images.pokemontcg.io/swsh7/8.png"],["Evolving Skies","014/203","Trevenant VMAX","https://images.pokemontcg.io/swsh7/14.png"],["Evolving Skies","029/203","Gyarados VMAX","https://images.pokemontcg.io/swsh7/29.png"],["Evolving Skies","030/203","Vaporeon VMAX","https://images.pokemontcg.io/swsh7/30.png"],["Evolving Skies","041/203","Glaceon VMAX","https://images.pokemontcg.io/swsh7/41.png"],["Evolving Skies","051/203","Jolteon VMAX","https://images.pokemontcg.io/swsh7/51.png"],["Evolving Skies","059/203","Dracozolt VMAX","https://images.pokemontcg.io/swsh7/59.png"],["Evolving Skies","065/203","Espeon VMAX","https://images.pokemontcg.io/swsh7/65.png"],["Evolving Skies","075/203","Sylveon VMAX","https://images.pokemontcg.io/swsh7/75.png"],["Evolving Skies","092/203","Lycanroc VMAX","https://images.pokemontcg.io/swsh7/92.png"],["Evolving Skies","095/203","Umbreon VMAX","https://images.pokemontcg.io/swsh7/95.png"],["Evolving Skies","101/203","Garbodor VMAX","https://images.pokemontcg.io/swsh7/101.png"],["Evolving Skies","111/203","Rayquaza VMAX","https://images.pokemontcg.io/swsh7/111.png"],["Evolving Skies","123/203","Duraludon VMAX","https://images.pokemontcg.io/swsh7/123.png"],["Evolving Skies","204/203","Leafeon VMAX (Alt Art)","https://images.pokemontcg.io/swsh7/204.png"],["Evolving Skies","205/203","Leafeon VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/205.png"],["Evolving Skies","206/203","Trevenant VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/206.png"],["Evolving Skies","207/203","Gyarados VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/207.png"],["Evolving Skies","208/203","Glaceon VMAX (Alt Art)","https://images.pokemontcg.io/swsh7/208.png"],["Evolving Skies","209/203","Glaceon VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/209.png"],["Evolving Skies","210/203","Dracozolt VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/210.png"],["Evolving Skies","211/203","Sylveon VMAX (Alt Art)","https://images.pokemontcg.io/swsh7/211.png"],["Evolving Skies","212/203","Sylveon VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/212.png"],["Evolving Skies","213/203","Lycanroc VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/213.png"],["Evolving Skies","214/203","Umbreon VMAX (Alt Art / Moonbreon)","https://images.pokemontcg.io/swsh7/214.png"],["Evolving Skies","215/203","Umbreon VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/215.png"],["Evolving Skies","216/203","Garbodor VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/216.png"],["Evolving Skies","217/203","Rayquaza VMAX (Alt Art)","https://images.pokemontcg.io/swsh7/217.png"],["Evolving Skies","218/203","Rayquaza VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/218.png"],["Evolving Skies","219/203","Duraludon VMAX (Alt Art)","https://images.pokemontcg.io/swsh7/219.png"],["Evolving Skies","220/203","Duraludon VMAX (Rainbow)","https://images.pokemontcg.io/swsh7/220.png"],["Celebrations","007/025","Flying Pikachu VMAX","https://images.pokemontcg.io/cel25/7.png"],["Celebrations","009/025","Surfing Pikachu VMAX","https://images.pokemontcg.io/cel25/9.png"],["Fusion Strike","023/264","Rillaboom VMAX","https://images.pokemontcg.io/swsh8/23.png"],["Fusion Strike","040/264","Chandelure VMAX","https://images.pokemontcg.io/swsh8/40.png"],["Fusion Strike","045/264","Cinderace VMAX","https://images.pokemontcg.io/swsh8/45.png"],["Fusion Strike","079/264","Inteleon VMAX","https://images.pokemontcg.io/swsh8/79.png"],["Fusion Strike","104/264","Boltund VMAX","https://images.pokemontcg.io/swsh8/104.png"],["Fusion Strike","114/264","Mew VMAX","https://images.pokemontcg.io/swsh8/114.png"],["Fusion Strike","157/264","Gengar VMAX","https://images.pokemontcg.io/swsh8/157.png"],["Fusion Strike","218/264","Greedent VMAX","https://images.pokemontcg.io/swsh8/218.png"],["Fusion Strike","265/264","Chandelure VMAX (Rainbow)","https://images.pokemontcg.io/swsh8/265.png"],["Fusion Strike","266/264","Inteleon VMAX (Rainbow)","https://images.pokemontcg.io/swsh8/266.png"],["Fusion Strike","267/264","Boltund VMAX (Rainbow)","https://images.pokemontcg.io/swsh8/267.png"],["Fusion Strike","268/264","Mew VMAX (Alt Art)","https://images.pokemontcg.io/swsh8/268.png"],["Fusion Strike","269/264","Mew VMAX (Rainbow)","https://images.pokemontcg.io/swsh8/269.png"],["Fusion Strike","270/264","Espeon VMAX (Rainbow)","https://images.pokemontcg.io/swsh8/270.png"],["Fusion Strike","271/264","Gengar VMAX (Rainbow)","https://images.pokemontcg.io/swsh8/271.png"],["Fusion Strike","272/264","Greedent VMAX (Rainbow)","https://images.pokemontcg.io/swsh8/272.png"],["Brilliant Stars","029/172","Kingler VMAX","https://images.pokemontcg.io/swsh9/29.png"],["Brilliant Stars","069/172","Mimikyu VMAX","https://images.pokemontcg.io/swsh9/69.png"],["Brilliant Stars","097/172","Aggron VMAX","https://images.pokemontcg.io/swsh9/97.png"],["Brilliant Stars","TG15/TG30","Sylveon VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh9tg/TG15.png"],["Brilliant Stars","TG17/TG30","Mimikyu VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh9tg/TG17.png"],["Brilliant Stars","TG19/TG30","Single Strike Urshifu VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh9tg/TG19.png"],["Brilliant Stars","TG21/TG30","Rapid Strike Urshifu VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh9tg/TG21.png"],["Brilliant Stars","TG23/TG30","Umbreon VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh9tg/TG23.png"],["Brilliant Stars","TG29/TG30","Single Strike Urshifu VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh9tg/TG29.png"],["Brilliant Stars","TG30/TG30","Rapid Strike Urshifu VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh9tg/TG30.png"],["Astral Radiance","026/189","Heatran VMAX","https://images.pokemontcg.io/swsh10/26.png"],["Astral Radiance","073/189","Machamp VMAX","https://images.pokemontcg.io/swsh10/73.png"],["Astral Radiance","TG15/TG30","Ice Rider Calyrex VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh10tg/TG15.png"],["Astral Radiance","TG18/TG30","Shadow Rider Calyrex VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh10tg/TG18.png"],["Astral Radiance","TG29/TG30","Ice Rider Calyrex VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh10tg/TG29.png"],["Astral Radiance","TG30/TG30","Shadow Rider Calyrex VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh10tg/TG30.png"],["Pokémon Go","048/078","Melmetal VMAX","https://images.pokemontcg.io/pgo/48.png"],["Lost Origin","049/196","Kyurem VMAX","https://images.pokemontcg.io/swsh11/49.png"],["Lost Origin","TG13/TG30","Orbeetle VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh11tg/TG13.png"],["Lost Origin","TG15/TG30","Centiskorch VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh11tg/TG15.png"],["Lost Origin","TG17/TG30","Pikachu VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh11tg/TG17.png"],["Lost Origin","TG22/TG30","Eternatus VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh11tg/TG22.png"],["Lost Origin","TG29/TG30","Pikachu VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh11tg/TG29.png"],["Lost Origin","TG30/TG30","Mew VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh11tg/TG30.png"],["Silver Tempest","058/195","Regieleki VMAX","https://images.pokemontcg.io/swsh12/58.png"],["Silver Tempest","198/195","Regieleki VMAX (Rainbow)","https://images.pokemontcg.io/swsh12/198.png"],["Silver Tempest","TG15/TG30","Blaziken VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh12tg/TG15.png"],["Silver Tempest","TG19/TG30","Corviknight VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh12tg/TG19.png"],["Silver Tempest","TG20/TG30","Rayquaza VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh12tg/TG20.png"],["Silver Tempest","TG21/TG30","Duraludon VMAX (Trainer Gallery)","https://images.pokemontcg.io/swsh12tg/TG21.png"],["Silver Tempest","TG29/TG30","Rayquaza VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh12tg/TG29.png"],["Silver Tempest","TG30/TG30","Duraludon VMAX (Trainer Gallery Gold)","https://images.pokemontcg.io/swsh12tg/TG30.png"],["Crown Zenith","054/159","Zeraora VMAX","https://images.pokemontcg.io/swsh12pt5/54.png"],["Crown Zenith","066/159","Hatterene VMAX","https://images.pokemontcg.io/swsh12pt5/66.png"],["Crown Zenith","101/159","Rayquaza VMAX","https://images.pokemontcg.io/swsh12pt5/101.png"],["Crown Zenith","102/159","Rayquaza VMAX (Alt Art)","https://images.pokemontcg.io/swsh12pt5/102.png"],["Crown Zenith","104/159","Duraludon VMAX","https://images.pokemontcg.io/swsh12pt5/104.png"],["Crown Zenith","GG42/GG70","Zeraora VMAX (Galarian Gallery)","https://images.pokemontcg.io/swsh12pt5gg/GG42.png"],["Crown Zenith","GG45/GG70","Deoxys VMAX (Galarian Gallery)","https://images.pokemontcg.io/swsh12pt5gg/GG45.png"],["Crown Zenith","GG47/GG70","Hatterene VMAX (Galarian Gallery)","https://images.pokemontcg.io/swsh12pt5gg/GG47.png"]];   // [set, number, name, imageURL]
+
+const slug = s => s.replace(/[^a-z0-9]+/gi,'_');
+CARDS.forEach(c => c.push(slug(c[0]) + '|' + slug(c[1])));   // c[4] = id
+
+const SETS = [];
+CARDS.forEach(c => { if(!SETS.includes(c[0])) SETS.push(c[0]); });
+
+// ---- persistence: localStorage works on a normal hosted page (GitHub Pages) ----
+const KEY='vmax_tracker_v1', VIEWKEY='vmax_tracker_view';
+let state={}, activeSet='ALL', query='', gridView=false;
+
+function load(){
+  try{ const r=localStorage.getItem(KEY); if(r) state=JSON.parse(r); }catch(e){ state={}; }
+  try{ if(localStorage.getItem(VIEWKEY)==='grid') gridView=true; }catch(e){}
+  render();
+}
+function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+function persistView(){ try{ localStorage.setItem(VIEWKEY, gridView?'grid':'list'); }catch(e){} }
+
+const money=n=>'$'+(Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2});
+function totals(){ let g=0,s=0; for(const id in state){g++; s+=(+state[id].price||0);} return {got:g,spend:s}; }
+function setCounts(s){ const cs=CARDS.filter(c=>c[0]===s); return {got:cs.filter(c=>state[c[4]]).length,total:cs.length}; }
+
+function buildFilters(){
+  const wrap=document.getElementById('filters'); wrap.innerHTML='';
+  const mk=(id,label)=>{ const b=document.createElement('button');
+    b.className='chip'+(activeSet===id?' on':''); b.textContent=label;
+    b.onclick=()=>{activeSet=id; render();}; return b; };
+  wrap.appendChild(mk('ALL','All')); wrap.appendChild(mk('TODO','Still needed'));
+  SETS.forEach(s=>wrap.appendChild(mk(s,s)));
+}
+
+function thumbEl(c){
+  const img=document.createElement('img');
+  img.className='thumb'; img.loading='lazy'; img.alt=c[2]; img.src=c[3];
+  img.onerror=function(){ const ph=document.createElement('div'); ph.className='thumb ph'; ph.textContent=c[1]; img.replaceWith(ph); };
+  return img;
+}
+
+function render(){
+  buildFilters();
+  const list=document.getElementById('list');
+  list.className=gridView?'grid':'';
+  const vt=document.getElementById('viewToggle');
+  vt.classList.toggle('on',gridView); vt.textContent=gridView?'List':'Grid';
+  list.innerHTML='';
+  const q=query.trim().toLowerCase();
+  let shown=CARDS.filter(c=>{
+    if(activeSet==='TODO'){ if(state[c[4]]) return false; }
+    else if(activeSet!=='ALL'){ if(c[0]!==activeSet) return false; }
+    if(q){ if(!(c[2]+' '+c[0]+' '+c[1]).toLowerCase().includes(q)) return false; }
+    return true;
+  });
+  if(shown.length===0){
+    list.innerHTML='<div class="empty-state">No cards match. Clear the search or pick another filter.</div>';
+  } else {
+    let curSet=null, group=null;
+    shown.forEach(c=>{
+      if(c[0]!==curSet){
+        curSet=c[0]; const sc=setCounts(curSet);
+        const sg=document.createElement('div'); sg.className='setgroup';
+        sg.innerHTML='<div class="sethead"><h2>'+curSet+'</h2><span class="frac">'+sc.got+' / '+sc.total+'</span></div>';
+        group=document.createElement('div'); sg.appendChild(group); list.appendChild(sg);
+      }
+      const got=!!state[c[4]];
+      const row=document.createElement('div'); row.className='row'+(got?' got':'');
+      const tick=document.createElement('div'); tick.className='tick'; tick.textContent='✓';
+      const thumb=thumbEl(c);
+      const info=document.createElement('div'); info.className='info';
+      info.innerHTML='<div class="name">'+c[2]+'</div><div class="num">'+c[1]+'</div>';
+      const price=document.createElement('div'); price.className='price'+(got?'':' empty');
+      price.textContent=got?money(+state[c[4]].price||0):'–';
+      row.append(tick,thumb,info,price);
+      row.onclick=()=>openSheet(c);
+      group.appendChild(row);
+    });
+  }
+  const t=totals();
+  document.getElementById('sGot').textContent=t.got;
+  document.getElementById('sSpend').textContent=money(t.spend);
+  document.getElementById('hcount').textContent=t.got+' of '+CARDS.length+' collected';
+}
+
+let sheetCard=null;
+const sheetBg=document.getElementById('sheetBg');
+const priceInput=document.getElementById('shPrice');
+const shImg=document.getElementById('shImg');
+
+function openSheet(c){
+  sheetCard=c;
+  document.getElementById('shName').textContent=c[2];
+  document.getElementById('shSub').textContent=c[0]+' · '+c[1];
+  shImg.style.display=''; shImg.src=c[3]; shImg.alt=c[2];
+  shImg.onerror=function(){ shImg.style.display='none'; };
+  shImg.onclick=()=>{ document.getElementById('zoomImg').src=c[3]; document.getElementById('zoomBg').classList.add('open'); };
+  const ex=state[c[4]];
+  priceInput.value=ex?(ex.price||''):'';
+  document.getElementById('shRemove').style.display=ex?'':'none';
+  sheetBg.classList.add('open');
+  setTimeout(()=>priceInput.focus(),120);
+}
+function closeSheet(){ sheetBg.classList.remove('open'); sheetCard=null; }
+
+[1,5,10,20,50,100].forEach(v=>{ const b=document.createElement('button'); b.textContent='$'+v;
+  b.onclick=()=>{ priceInput.value=((+priceInput.value||0)+v).toFixed(2).replace(/\.00$/,''); };
+  document.getElementById('quickRow').appendChild(b); });
+
+function saveSheet(){ if(!sheetCard) return; const p=parseFloat(priceInput.value);
+  state[sheetCard[4]]={price:isNaN(p)?0:p,t:Date.now()}; persist(); render(); closeSheet(); }
+function removeSheet(){ if(!sheetCard) return; delete state[sheetCard[4]]; persist(); render(); closeSheet(); }
+
+document.getElementById('shSave').onclick=saveSheet;
+document.getElementById('shRemove').onclick=removeSheet;
+document.getElementById('shCancel').onclick=closeSheet;
+sheetBg.onclick=e=>{ if(e.target===sheetBg) closeSheet(); };
+priceInput.addEventListener('keydown',e=>{ if(e.key==='Enter') saveSheet(); });
+
+const zoomBg=document.getElementById('zoomBg');
+zoomBg.onclick=()=>zoomBg.classList.remove('open');
+
+document.getElementById('viewToggle').onclick=()=>{ gridView=!gridView; persistView(); render(); };
+document.getElementById('search').addEventListener('input',e=>{ query=e.target.value; render(); });
+
+document.getElementById('exportBtn').onclick=()=>{
+  const rows=[['Set','Number','Card','Purchased','Price']];
+  CARDS.forEach(c=>{ const g=state[c[4]]; rows.push([c[0],c[1],c[2],g?'Yes':'No',g?(+g.price||0):'']); });
+  const csv=rows.map(r=>r.map(f=>{ const s=String(f);
+    return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(',')).join('\n');
+  const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
+  const a=document.createElement('a'); const d=new Date().toISOString().slice(0,10);
+  a.href=url; a.download='vmax-haul-'+d+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
+};
+document.getElementById('resetBtn').onclick=()=>{
+  if(confirm('Clear all purchases and prices? This cannot be undone.')){ state={}; persist(); render(); }
+};
+
+load();
+</script>
+</body>
+</html>
