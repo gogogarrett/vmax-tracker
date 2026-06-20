@@ -21,7 +21,16 @@
   .title{display:flex; align-items:baseline; gap:8px; margin:0 0 8px;}
   .title h1{font-size:17px; font-weight:800; letter-spacing:.2px; margin:0;}
   .title .vbolt{color:var(--bolt); font-weight:900;}
-  .title .count{margin-left:auto; font-size:12px; color:var(--mute); font-variant-numeric:tabular-nums;}
+  .title .count{font-size:12px; color:var(--mute); font-variant-numeric:tabular-nums;}
+  .sync{margin-left:auto; display:inline-flex; align-items:center; gap:6px; font-size:11px;
+    font-weight:600; padding:5px 9px; border-radius:999px; border:1px solid var(--line);
+    background:var(--panel); color:var(--mute); cursor:pointer; letter-spacing:.3px;}
+  .sync .dot{width:7px; height:7px; border-radius:50%; background:var(--faint); flex:0 0 auto;}
+  .sync.synced{color:var(--got); border-color:#1c5443;} .sync.synced .dot{background:var(--got);}
+  .sync.connecting{color:var(--accent);} .sync.connecting .dot{background:var(--accent);
+    animation:pulse 1s ease-in-out infinite;}
+  .sync.error{color:#ff8585; border-color:#5a2a2a;} .sync.error .dot{background:#ff8585;}
+  @keyframes pulse{0%,100%{opacity:1;}50%{opacity:.3;}}
 
   .toolbar{display:flex; gap:8px; align-items:center;}
   .search{flex:1; font-size:16px; padding:11px 12px; border-radius:11px;
@@ -130,6 +139,7 @@
 <header>
   <div class="title">
     <h1><span class="vbolt">V</span>MAX Show Tracker</h1>
+    <button class="sync" id="syncBadge" title="Tap to pull latest from cloud"><span class="dot" id="syncDot"></span><span id="syncTxt">Local</span></button>
     <span class="count" id="hcount"></span>
   </div>
   <div class="toolbar">
@@ -183,14 +193,37 @@ CARDS.forEach(c => { if(!SETS.includes(c[0])) SETS.push(c[0]); });
 
 const KEY='vmax_tracker_v1', VIEWKEY='vmax_tracker_view';
 let state={}, activeSet='ALL', query='', gridView=false;
+let applyingRemote=false;   // guard so remote updates don't echo back as a push
 
 function load(){
   try{ const r=localStorage.getItem(KEY); if(r) state=JSON.parse(r); }catch(e){ state={}; }
   try{ if(localStorage.getItem(VIEWKEY)==='grid') gridView=true; }catch(e){}
   render();
 }
-function persist(){ try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){} }
+function persist(){
+  try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+  if(!applyingRemote && window.cloudPush) window.cloudPush(state);
+}
 function persistView(){ try{ localStorage.setItem(VIEWKEY, gridView?'grid':'list'); }catch(e){} }
+
+// Called by the Firebase module when a newer cloud snapshot arrives.
+window.applyRemoteState=function(remote){
+  if(!remote || typeof remote!=='object') return;
+  applyingRemote=true;
+  state=remote;
+  try{ localStorage.setItem(KEY, JSON.stringify(state)); }catch(e){}
+  render();
+  applyingRemote=false;
+};
+// Called by the Firebase module to reflect connection status in the header.
+window.setSyncStatus=function(kind,label){
+  const b=document.getElementById('syncBadge'); if(!b) return;
+  b.classList.remove('synced','connecting','error');
+  if(kind) b.classList.add(kind);
+  document.getElementById('syncTxt').textContent=label;
+};
+// Header badge taps = force a pull from cloud.
+document.getElementById('syncBadge').onclick=()=>{ if(window.cloudPull) window.cloudPull(); };
 
 const money=n=>'$'+(Math.round(n*100)/100).toLocaleString(undefined,{minimumFractionDigits:n%1?2:0,maximumFractionDigits:2});
 function totals(){ let g=0,s=0; for(const id in state){g++; s+=(+state[id].price||0);} return {got:g,spend:s}; }
@@ -322,6 +355,108 @@ document.getElementById('resetBtn').onclick=()=>{
 };
 
 load();
+</script>
+
+<script type="module">
+  // ---- Cross-device sync via Firebase (anonymous auth + a shared Firestore doc) ----
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/12.15.0/firebase-app.js";
+  import { getAuth, signInAnonymously, onAuthStateChanged }
+    from "https://www.gstatic.com/firebasejs/12.15.0/firebase-auth.js";
+  import { getFirestore, doc, onSnapshot, setDoc, getDoc }
+    from "https://www.gstatic.com/firebasejs/12.15.0/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyAXKG336jsT8-MfhnJyHWL5UEjo4G3-LCM",
+    authDomain: "vmax-tracker.firebaseapp.com",
+    projectId: "vmax-tracker",
+    storageBucket: "vmax-tracker.firebasestorage.app",
+    messagingSenderId: "1080002722719",
+    appId: "1:1080002722719:web:022669100e5ee233fedbaa",
+    measurementId: "G-DKY8KZ3RNN"
+  };
+
+  const DOC_PATH = ["trackers", "garrett"];   // single shared record
+  const status = (k, l) => window.setSyncStatus && window.setSyncStatus(k, l);
+
+  let dref = null;
+  let pushTimer = null;
+  let lastPushedJSON = null;
+
+  status("connecting", "Connecting");
+
+  let app, auth, db;
+  try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+  } catch (e) {
+    status("error", "Sync off");
+    console.warn("Firebase init failed:", e);
+  }
+
+  if (auth && db) {
+    onAuthStateChanged(auth, (user) => {
+      if (!user) return;
+      dref = doc(db, ...DOC_PATH);
+
+      // Live listener: newer cloud snapshots update the UI immediately.
+      onSnapshot(dref, (snap) => {
+        status("synced", "Synced");
+        if (!snap.exists()) return;
+        const data = snap.data();
+        const remote = data && data.state ? data.state : {};
+        const remoteJSON = JSON.stringify(remote);
+        // Ignore the echo of our own most recent write.
+        if (remoteJSON === lastPushedJSON) return;
+        lastPushedJSON = remoteJSON;
+        window.applyRemoteState(remote);
+      }, (err) => {
+        console.warn("snapshot error:", err);
+        status("error", "Sync error");
+      });
+    });
+
+    signInAnonymously(auth).catch((e) => {
+      console.warn("anon sign-in failed:", e);
+      status("error", "Sync off");
+    });
+  }
+
+  // Debounced push of local state -> cloud (last-write-wins).
+  window.cloudPush = function (state) {
+    if (!dref) return;            // not signed in yet; local save still happened
+    clearTimeout(pushTimer);
+    pushTimer = setTimeout(async () => {
+      try {
+        const json = JSON.stringify(state || {});
+        lastPushedJSON = json;
+        await setDoc(dref, { state: state || {}, updatedAt: Date.now() }, { merge: false });
+        status("synced", "Synced");
+      } catch (e) {
+        console.warn("push failed:", e);
+        status("error", "Sync error");
+      }
+    }, 600);
+  };
+
+  // Manual pull (header badge tap).
+  window.cloudPull = async function () {
+    if (!dref) return;
+    status("connecting", "Syncing");
+    try {
+      const snap = await getDoc(dref);
+      if (snap.exists()) {
+        const data = snap.data();
+        const remote = data && data.state ? data.state : {};
+        lastPushedJSON = JSON.stringify(remote);
+        window.applyRemoteState(remote);
+      }
+      status("synced", "Synced");
+    } catch (e) {
+      console.warn("pull failed:", e);
+      status("error", "Sync error");
+    }
+  };
 </script>
 </body>
 </html>
