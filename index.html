@@ -314,7 +314,7 @@ document.getElementById('exportBtn').onclick=()=>{
   const csv=rows.map(r=>r.map(f=>{ const s=String(f);
     return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }).join(',')).join('\n');
   const blob=new Blob([csv],{type:'text/csv'}); const url=URL.createObjectURL(blob);
-  const a=document.createElement('a'); const d=new Date().toISOString().slice(3,10);
+  const a=document.createElement('a'); const d=new Date().toISOString().slice(0,10);
   a.href=url; a.download='vmax-haul-'+d+'.csv'; a.click(); setTimeout(()=>URL.revokeObjectURL(url),1000);
 };
 document.getElementById('resetBtn').onclick=()=>{
